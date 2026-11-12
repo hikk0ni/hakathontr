@@ -295,6 +295,16 @@ func UpdateMessage(req *models.RequestUpdateMessage, SenderID uint) error {
 
 // Read
 
+func ReadAuth(ID uint) (models.Auth, error) {
+	at := models.Auth{}
+	err := db.Model(models.Auth{}).Where("ID = ?", ID).First(&at).Error
+	if err != nil {
+		log.Println("Panic! Impossible Operation!")
+		return models.Auth{}, err
+	}
+	return at, nil
+}
+
 func ReadDoctor(ID uint) (models.Doctor, error) {
 	d := models.Doctor{}
 	err := db.Model(models.Doctor{}).Where("ID = ?", ID).First(&d).Error
@@ -305,8 +315,23 @@ func ReadDoctor(ID uint) (models.Doctor, error) {
 	return d, nil
 }
 
-func GetDoctorsByClinic(clinicID uint) ([]models.Doctor, error) {
+func GetDoctorsByClinic(clinicID uint, ApproveFilter string) ([]models.Doctor, error) {
 	var doctors []models.Doctor
+	if ApproveFilter == "true" {
+		err := db.Where("clinic_id = ? AND clinic_is_available = ?", clinicID, true).Find(&doctors).Error
+		if err != nil {
+			log.Println("Error to get doctors!")
+			return nil, err
+		}
+		return doctors, nil
+	} else if ApproveFilter == "false" {
+		err := db.Where("clinic_id = ? AND clinic_is_available = ?", clinicID, false).Find(&doctors).Error
+		if err != nil {
+			log.Println("Error to get doctors!")
+			return nil, err
+		}
+		return doctors, nil
+	}
 	err := db.Where("clinic_id = ?", clinicID).Find(&doctors).Error
 	if err != nil {
 		log.Println("Error Get Doctors!")
@@ -343,8 +368,15 @@ func ReadClinic(ID uint) (models.Clinic, error) {
 	return c, nil
 }
 
-func GetAllClinics() ([]models.Clinic, error) {
+func GetAllClinics(ApproveFilter string) ([]models.Clinic, error) {
 	var clinics []models.Clinic
+	if ApproveFilter == "true" {
+		err := db.Where("clinic_is_available = ?", true).Find(&clinics).Error
+		return clinics, err
+	} else if ApproveFilter == "false" {
+		err := db.Where("clinic_is_available = ?", false).Find(&clinics).Error
+		return clinics, err
+	}
 	err := db.Find(&clinics).Error
 	return clinics, err
 }
@@ -500,23 +532,35 @@ func MakeClinicIsAvailable(CLinicID uint, AuthIDJWT uint) error {
 
 func MakeDoctorIsAvailable(DoctorID uint, AuthIDJWT uint) error {
 	return db.Transaction(func(tx *gorm.DB) error {
-		var root uint
+		var targetDoctor models.Doctor
+		var requesterDoctor models.Doctor
 
-		err := tx.Model(models.Doctor{}).Where("auth_id = ?", AuthIDJWT).Select("Root").First(&root).Error
+		err := tx.Model(models.Doctor{}).Where("auth_id = ?", AuthIDJWT).First(&requesterDoctor).Error
 		if err != nil {
-			log.Println("Error get root-status!")
+			log.Println("Error get requester!")
 			return err
 		}
-		if root >= 1 {
-			err := tx.Model(models.Doctor{}).Where("id = ?", DoctorID).Update("AccountAvailable", true).Error
-			if err != nil {
-				log.Println("Error to make doctor is Available!")
-				return err
-			}
-			return nil
+		err = tx.Model(models.Doctor{}).Where("id = ?", DoctorID).First(&targetDoctor).Error
+		if err != nil {
+			log.Println("Error get target doctor!")
+			return err
 		}
-		log.Println("User is not a SuperAdmin!")
-		return errors.New("недостаточно прав: требуется уровень суперадмина")
+		if requesterDoctor.Root == 1 {
+			if requesterDoctor.ClinicID != targetDoctor.ClinicID {
+				log.Println("ClinicID has been different!")
+				return errors.New("Вы не можете управлять врачами не своей клиники")
+			}
+			targetDoctor.AccountAvailable = true
+			log.Println("Success get Available doctor")
+			return nil
+		} else if requesterDoctor.Root >= 2 {
+			targetDoctor.AccountAvailable = true
+			log.Println("Success get Available doctor")
+			return nil
+		} else {
+			log.Println("User is not a Admin")
+			return errors.New("User is not a Admin!")
+		}
 	})
 }
 

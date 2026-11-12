@@ -2,6 +2,8 @@ package models
 
 import (
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // Таблица аккаунтов
@@ -18,7 +20,7 @@ type Auth struct {
 type Doctor struct {
 	ID               uint `gorm:"primaryKey"`
 	AuthID           uint // Ключ аккаунта
-	Auth             Auth
+	Auth             Auth `gorm:"constraint:OnDelete:CASCADE;"`
 	ClinicID         uint `gorm:"not null"` // Ключ клиники
 	Name             string
 	Surname          string
@@ -32,7 +34,7 @@ type Doctor struct {
 type Patient struct {
 	ID             uint `gorm:"primaryKey"`
 	AuthID         uint
-	Auth           Auth
+	Auth           Auth `gorm:"constraint:OnDelete:CASCADE;"`
 	ClinicID       uint `gorm:"not null"`
 	Name           string
 	Surname        string
@@ -193,8 +195,28 @@ type PublicClinic struct {
 	Address string `json:"Address"`
 }
 
-//JWT-ТОКЕН
+// JWT-ТОКЕН and DTO JWT
 
-type jwttoken struct {
-	AuthID uint
+type TokenDataTransfer struct {
+	AccessToken    string
+	RefreshToken   string
+	RefreshTokenID string
+	AtExpires      int64
+	RtExpires      int64
+}
+
+type AccessTokenData struct {
+	AuthID uint   `json:"AuthID"`
+	Role   string `json:"Role"`
+	jwt.RegisteredClaims
+}
+
+type RefreshTokenData struct {
+	RtID   string `json:"RtID"`
+	AuthID uint   `json:"AuthID"`
+	jwt.RegisteredClaims
+}
+
+type RefreshToken struct {
+	RefreshToken string `json:"RefreshToken"`
 }

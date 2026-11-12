@@ -1,53 +1,102 @@
 package security
 
 import (
-	"errors"
 	"fmt"
+	"hakathon/models"
+	"log"
 	"time"
+	"uuid"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
-var jwtSecret = []byte("super_secret_hackathon_key_2026")
+var (
+	AccessSecret  = []byte("SUPER_SECRET_ACCESS_KEY")
+	RefreshSecret = []byte("SUPER_SECRET_REFRESH_KEY")
+)
 
-func HashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	return string(bytes), err
-}
-
-func CheckPassword(password, hash string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	return err == nil
-}
-
-func GenerateToken(authID uint) (string, error) {
-	claims := jwt.MapClaims{
-		"auth_id": authID,
-		"exp":     time.Now().Add(time.Hour * 72).Unix(),
+func GenerateToken(AuthID uint, Role string) (models.TokenDataTransfer, error) {
+	var err error
+	td := models.TokenDataTransfer{
+		RefreshTokenID: uuid.New().String(),
+		AtExpires:      time.Now().Add(time.Minute * 15).Unix(),
+		RtExpires:      time.Now().Add(time.Hour * 7).Unix(),
 	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	return token.SignedString(jwtSecret)
+	AccessTokenData := models.AccessTokenData{
+		AuthID: AuthID,
+		Role:   Role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Unix(td.AtExpires, 0)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	AccessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, AccessTokenData)
+	td.AccessToken, err = AccessToken.SignedString(AccessSecret)
+	if err != nil {
+		log.Println("Error token signed!")
+		return models.TokenDataTransfer{}, err
+	}
+	RefreshTokenData := models.RefreshTokenData{
+		RtID:   td.RefreshTokenID,
+		AuthID: AuthID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Unix(td.RtExpires, 0)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	RefreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, RefreshTokenData)
+	td.RefreshToken, err = RefreshToken.SignedString(RefreshSecret)
+	if err != nil {
+		log.Println("Error token signed!")
+		return models.TokenDataTransfer{}, err
+	}
+	return td, nil
 }
 
-func ParseToken(tokenString string) (uint, error) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("неверный метод подписи: %v", token.Header["alg"])
+func ValidateToken(AccessToken string) (models.AccessTokenData, error) {
+	var AcToken models.AccessTokenData
+	token, err := jwt.ParseWithClaims(AccessToken, &AcToken, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("%v", t.Header["alg"])
 		}
-		return jwtSecret, nil
+		return AccessSecret, nil
 	})
 
-	if err != nil || !token.Valid {
-		return 0, errors.New("токен недействителен или просрочен")
+	if !token.Valid {
+		return models.AccessTokenData{}, fmt.Errorf("not valid")
 	}
-
-	if claims, ok := token.Claims.(jwt.MapClaims); ok {
-		authID := uint(claims["auth_id"].(float64))
-		return authID, nil
+	if err != nil {
+		return models.AccessTokenData{}, err
 	}
+	return AcToken, err
+}
 
-	return 0, errors.New("ошибка чтения полезной нагрузки токена")
+func ValidateRefreshToken(RefreshToken string) (models.RefreshTokenData, error) {
+	var RfTokenData models.RefreshTokenData
+	RfToken, err := jwt.ParseWithClaims(RefreshToken, &RfTokenData, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("%v", token.Header["alg"])
+		}
+		return RefreshSecret, nil
+	})
+	if !RfToken.Valid {
+		return models.RefreshTokenData{}, fmt.Errorf("Error!")
+	}
+	if err != nil {
+		return models.RefreshTokenData{}, fmt.Errorf("Error: Error to Parse With Claim!")
+	}
+	return RfTokenData, nil
+}
+
+func HashPassword(password string) (string, error) {
+	HashP, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return password, err
+	}
+	return string(HashP), nil
+}
+
+func CheckHashPassword(password string, hashpassword string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hashpassword), []byte(password))
 }

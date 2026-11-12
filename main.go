@@ -3,14 +3,16 @@ package main
 import (
 	"log"
 
-	"github.com/gin-gonic/gin"
-
 	"hakathon/handlers"
 	"hakathon/middleware"
+	"hakathon/redis"
 	"hakathon/repository"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
+	redis.InitRedis()
 	repository.Initdb()
 
 	r := gin.Default()
